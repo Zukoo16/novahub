@@ -1,6 +1,9 @@
 /**
  * Слой данных: SQLite через встроенный node:sqlite (Node 22.5+, без зависимостей).
- * Файл БД: <проект>/data/novahub.db (игнорируется git).
+ * Файл БД локально: <проект>/data/novahub.db (игнорируется git).
+ * На serverless-платформах (Vercel/Render) корень проекта read-only —
+ * БД кладём в /tmp: переживает warm-инстанс, при пересоздании контенера
+ * данные сбрасываются и курсовые данные (сид) восстанавливаются автоматически.
  */
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
@@ -16,7 +19,8 @@ import {
 } from "./data";
 import { computeXp } from "./xp";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const SERVERLESS = Boolean(process.env.VERCEL || process.env.RENDER);
+const DATA_DIR = SERVERLESS ? "/tmp" : path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "novahub.db");
 
 let db: DatabaseSync | null = null;
