@@ -11,18 +11,31 @@ export interface XpSummary {
   lines: { label: string; xp: number }[];
 }
 
+const REGISTRATION_XP = 50;
+const LESSON_XP = xpRules.find((r) => r.action === "Модуль курса")?.xp ?? 100;
+const COURSE_XP = xpRules.find((r) => r.action === "Курс до конца")?.xp ?? 500;
+
+/** Входные данные для расчёта XP */
+export interface XpBreakdown {
+  lessons: number; // пройденные модули курсов
+  courses: number; // курсы, доведённые до конца
+}
+
 /**
- * Подсчёт XP пользователя по его записям (демо-логика).
- * enrollments — количество пройденных/записанных курсов.
+ * Подсчёт XP пользователя (демо-логика):
+ * 50 XP за регистрацию + 100 XP за каждый пройденный модуль + 500 XP за каждый
+ * полностью пройденный курс.
  */
-export function computeXp(enrollments: number): XpSummary {
-  const lines = [
-    { label: "Регистрация на платформе", xp: 50 },
-    ...Array.from({ length: enrollments }, () => ({
-      label: "Курс до конца",
-      xp: xpRules.find((r) => r.action === "Курс до конца")?.xp ?? 500,
-    })),
+export function computeXp(b: XpBreakdown): XpSummary {
+  const lines: { label: string; xp: number }[] = [
+    { label: "Регистрация на платформе", xp: REGISTRATION_XP },
   ];
+  if (b.lessons > 0) {
+    lines.push({ label: `Пройдено модулей (${b.lessons})`, xp: b.lessons * LESSON_XP });
+  }
+  if (b.courses > 0) {
+    lines.push({ label: `Курс до конца (${b.courses})`, xp: b.courses * COURSE_XP });
+  }
   const xp = lines.reduce((s, l) => s + l.xp, 0);
 
   let levelIndex = 0;

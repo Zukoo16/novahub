@@ -3,6 +3,7 @@
  * Файл БД: <проект>/data/novahub.db (игнорируется git).
  */
 import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import {
@@ -13,6 +14,7 @@ import {
   type Hackathon,
   type EventItem,
 } from "./data";
+import { computeXp } from "./xp";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "novahub.db");
@@ -93,6 +95,14 @@ function migrate(d: DatabaseSync) {
       course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (user_id, course_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS progress (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      lesson_index INTEGER NOT NULL,
+      completed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, course_id, lesson_index)
     );
   `);
 }
@@ -337,7 +347,122 @@ export function isEnrolled(userId: number, courseId: string) {
   return Boolean(r);
 }
 
+/* ================= Прогресс обучения, XP, лидерборд ================= */
+
+export interface CourseProgress {
+  total: number;
+  completed: number[]; // индексы пройденных уроков
+  pct: number; // 0..100
+  done: boolean; // все уроки пройдены
+}
+
+/** Отметить урок пройденным (только для записанных, индекс в пределах программы). */
+export function completeLesson(userId: number, courseId: string, lessonIndex: number): CourseProgress | null {
+  const course = courseById(courseId);
+  if (!course || !isEnrolled(userId, courseId)) return null;
+  if (lessonIndex < 0 || lessonIndex >= course.syllabus.length) return null;
+  getDb()
+    .prepare("INSERT OR IGNORE INTO progress (user_id, course_id, lesson_index) VALUES (?, ?, ?)")
+    .run(userId, courseId, lessonIndex);
+  return courseProgress(userId, courseId);
+}
+
+/** Прогресс пользователя по курсу (null, если не записан). */
+export function courseProgress(userId: number, courseId: string): CourseProgress | null {
+  const course = courseById(courseId);
+  if (!course || !isEnrolled(userId, courseId)) return null;
+  const rows = getDb()
+    .prepare("SELECT lesson_index FROM progress WHERE user_id = ? AND course_id = ?")
+    .all(userId, courseId) as { lesson_index: number }[];
+  const completed = rows.map((r) => r.lesson_index).sort((a, b) => a - b);
+  const total = course.syllabus.length;
+  return {
+    total,
+    completed,
+    pct: total ? Math.min(100, Math.round((completed.length / total) * 100)) : 0,
+    done: total > 0 && completed.length >= total,
+  };
+}
+
+/** Прогресс по всем записанным курсам пользователя. */
+export function userProgressMap(userId: number): Map<string, CourseProgress> {
+  const courses = enrolledCourses(userId);
+  const rows = getDb()
+    .prepare("SELECT course_id, lesson_index FROM progress WHERE user_id = ?")
+    .all(userId) as { course_id: string; lesson_index: number }[];
+  const byCourse = new Map<string, number[]>();
+  for (const r of rows) {
+    const arr = byCourse.get(r.course_id) ?? [];
+    arr.push(r.lesson_index);
+    byCourse.set(r.course_id, arr);
+  }
+  const map = new Map<string, CourseProgress>();
+  for (const c of courses) {
+    const completed = (byCourse.get(c.id) ?? []).sort((a, b) => a - b);
+    const total = c.syllabus.length;
+    map.set(c.id, {
+      total,
+      completed,
+      pct: total ? Math.min(100, Math.round((completed.length / total) * 100)) : 0,
+      done: total > 0 && completed.length >= total,
+    });
+  }
+  return map;
+}
+
+/** Статистика для расчёта XP: сколько модулей и целых курсов пройдено. */
+export function userXpStats(userId: number): { lessons: number; courses: number } {
+  const lessons =
+    (getDb().prepare("SELECT COUNT(*) AS n FROM progress WHERE user_id = ?").get(userId) as { n: number }).n;
+  let courses = 0;
+  for (const p of userProgressMap(userId).values()) if (p.done) courses++;
+  return { lessons, courses };
+}
+
+export interface LeaderboardEntry {
+  id: number;
+  name: string;
+  xp: number;
+  levelTitle: string;
+  levelIndex: number;
+  coursesCompleted: number;
+}
+
+/** Топ по XP (регистрация + модули + пройденные курсы). */
+export function leaderboard(limit = 10): LeaderboardEntry[] {
+  const users = getDb()
+    .prepare("SELECT id, name FROM users ORDER BY name ASC")
+    .all() as { id: number; name: string }[];
+  return users
+    .map((u) => {
+      const stats = userXpStats(u.id);
+      const xp = computeXp(stats);
+      return {
+        id: u.id,
+        name: u.name,
+        xp: xp.xp,
+        levelTitle: xp.levelTitle,
+        levelIndex: xp.levelIndex,
+        coursesCompleted: stats.courses,
+      };
+    })
+    .sort((a, b) => b.xp - a.xp || a.name.localeCompare(b.name, "ru"))
+    .slice(0, limit);
+}
+
+/** Детерминированный код верификации сертификата, напр. NVH-2026-8F3KQ2 */
+export function certificateCode(userId: number, courseId: string): string {
+  const h = createHash("sha256")
+    .update(`novahub:${userId}:${courseId}`)
+    .digest("base64url")
+    .replace(/[^a-z0-9]/gi, "")
+    .toUpperCase()
+    .slice(0, 6);
+  return `NVH-${new Date().getFullYear()}-${h}`;
+}
+
 /* ================= Админка: запись и удаление ================= */
+
 
 type CourseInput = Omit<Course, "id"> & { id?: string };
 

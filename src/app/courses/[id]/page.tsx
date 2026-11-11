@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { courseById, listCourses, isEnrolled } from "@/lib/db";
+import { courseById, listCourses, isEnrolled, courseProgress } from "@/lib/db";
 import { categoryById } from "@/lib/data";
 import { getSessionUser } from "@/lib/session";
 import { formatDateTime, formatPrice, capacityPercent } from "@/lib/utils";
@@ -31,6 +31,7 @@ export default async function CoursePage({ params }: PageProps<"/courses/[id]">)
 
   const user = await getSessionUser();
   const enrolled = user ? isEnrolled(user.id, course.id) : false;
+  const progress = enrolled ? courseProgress(user!.id, course.id) : null;
 
   return (
     <>
@@ -106,17 +107,29 @@ export default async function CoursePage({ params }: PageProps<"/courses/[id]">)
               <div className="mt-10">
                 <h2 className="text-xl font-bold text-white">Программа курса</h2>
                 <ol className="mt-5 space-y-3">
-                  {course.syllabus.map((item, i) => (
-                    <li
-                      key={item}
-                      className="flex items-start gap-4 rounded-xl border border-white/8 bg-surface-2/40 px-4 py-3.5"
-                    >
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand/15 font-mono text-xs font-bold text-brand-light">
-                        {i + 1}
-                      </span>
-                      <span className="text-sm leading-relaxed text-zinc-300">{item}</span>
-                    </li>
-                  ))}
+                  {course.syllabus.map((item, i) => {
+                    const done = progress?.completed.includes(i) ?? false;
+                    return (
+                      <li
+                        key={item}
+                        className={`flex items-start gap-4 rounded-xl border px-4 py-3.5 ${
+                          done ? "border-brand/30 bg-brand/8" : "border-white/8 bg-surface-2/40"
+                        }`}
+                      >
+                        <span
+                          className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-mono text-xs font-bold ${
+                            done ? "bg-brand text-white" : "bg-brand/15 text-brand-light"
+                          }`}
+                        >
+                          {done ? <IconCheck className="h-3.5 w-3.5" /> : i + 1}
+                        </span>
+                        <span className="text-sm leading-relaxed text-zinc-300">
+                          {item}
+                          {done && <span className="ml-2 text-xs text-brand-light">— пройден</span>}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ol>
               </div>
 
@@ -187,6 +200,15 @@ export default async function CoursePage({ params }: PageProps<"/courses/[id]">)
                   size="lg"
                   className="mt-6"
                 />
+                {progress && (
+                  <Button
+                    href={`/courses/${course.id}/learn`}
+                    variant="outline"
+                    className="mt-3 w-full"
+                  >
+                    {progress.done ? "Сертификат и модули" : `Продолжить курс · ${progress.pct}%`}
+                  </Button>
+                )}
                 <p className="mt-3 text-center text-xs text-zinc-600">
                   Отменить запись можно в любой момент
                 </p>

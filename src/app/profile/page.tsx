@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { enrolledCourses } from "@/lib/db";
+import { enrolledCourses, userProgressMap, userXpStats } from "@/lib/db";
 import { getSessionUser } from "@/lib/session";
 import { computeXp } from "@/lib/xp";
 import { gamificationLevels } from "@/lib/data";
 import { formatPrice, formatDateTime } from "@/lib/utils";
 import { Badge, Button, Card, Container } from "@/components/ui";
-import { IconCheck, IconZap, IconClock, IconStar } from "@/components/icons";
+import { IconCertificate, IconCheck, IconClock, IconPlay, IconStar, IconZap } from "@/components/icons";
 
 export const metadata: Metadata = {
   title: "Мой профиль",
@@ -19,7 +19,8 @@ export default async function ProfilePage() {
   if (!user) redirect("/");
 
   const courses = enrolledCourses(user.id);
-  const xp = computeXp(courses.length);
+  const progressMap = userProgressMap(user.id);
+  const xp = computeXp(userXpStats(user.id));
 
   return (
     <div className="bg-grid">
@@ -101,34 +102,83 @@ export default async function ProfilePage() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {courses.map((c) => (
-                <Link key={c.id} href={`/courses/${c.id}`} className="group block">
-                  <Card className="flex items-center justify-between gap-4 p-5 transition group-hover:border-brand/40">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand-light">
-                        <IconCheck className="h-5 w-5" />
-                      </span>
-                      <div>
-                        <div className="font-semibold text-white group-hover:text-brand-light">
-                          {c.title}
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
-                          <span className="inline-flex items-center gap-1.5">
-                            <IconClock className="h-3.5 w-3.5" />
-                            {c.weeks} нед. · {c.format}
-                          </span>
-                          <span className="inline-flex items-center gap-1.5">
-                            <IconStar className="h-3.5 w-3.5 text-amber-300" />
-                            {c.rating.toFixed(1)}
-                          </span>
-                          <span>Старт: {formatDateTime(c.startsAt)}</span>
+              {courses.map((c) => {
+                const prog = progressMap.get(c.id);
+                const pct = prog?.pct ?? 0;
+                const doneCount = prog?.completed.length ?? 0;
+                const total = prog?.total ?? c.syllabus.length;
+                const done = prog?.done ?? false;
+                return (
+                  <Card key={c.id} className="p-5 transition hover:border-brand/40">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+                            done ? "bg-brand text-white" : "bg-brand/15 text-brand-light"
+                          }`}
+                        >
+                          {done ? <IconCertificate className="h-5 w-5" /> : <IconCheck className="h-5 w-5" />}
+                        </span>
+                        <div className="min-w-0">
+                          <Link
+                            href={`/courses/${c.id}`}
+                            className="font-semibold text-white transition hover:text-brand-light"
+                          >
+                            {c.title}
+                          </Link>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
+                            <span className="inline-flex items-center gap-1.5">
+                              <IconClock className="h-3.5 w-3.5" />
+                              {c.weeks} нед. · {c.format}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5">
+                              <IconStar className="h-3.5 w-3.5 text-amber-300" />
+                              {c.rating.toFixed(1)}
+                            </span>
+                            <span>Старт: {formatDateTime(c.startsAt)}</span>
+                          </div>
                         </div>
                       </div>
+                      <div className="flex shrink-0 items-center gap-4">
+                        <span className="text-sm font-bold text-white">{formatPrice(c.price)}</span>
+                        <Button
+                          href={`/courses/${c.id}/learn`}
+                          variant={done ? "outline" : "primary"}
+                          size="sm"
+                        >
+                          {done ? (
+                            <>
+                              <IconCertificate className="h-4 w-4 text-brand-light" />
+                              Сертификат
+                            </>
+                          ) : (
+                            <>
+                              <IconPlay className="h-4 w-4" />
+                              Продолжить
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </div>
-                    <span className="shrink-0 text-sm font-bold text-white">{formatPrice(c.price)}</span>
+                    <div className="mt-4">
+                      <div className="mb-1 flex justify-between text-xs">
+                        <span className={done ? "font-medium text-brand-light" : "text-zinc-500"}>
+                          {done ? "Курс завершён" : `Прогресс ${pct}%`}
+                        </span>
+                        <span className="text-zinc-500">
+                          {doneCount} из {total} модулей
+                        </span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-white/8">
+                        <div
+                          className="h-full rounded-full bg-brand"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
                   </Card>
-                </Link>
-              ))}
+                );
+              })}
             </div>
           )}
 

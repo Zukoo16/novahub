@@ -13,6 +13,7 @@ const nav = [
   { href: "/courses", label: "Курсы" },
   { href: "/hackathons", label: "Хакатоны" },
   { href: "/events", label: "Мероприятия" },
+  { href: "/leaderboard", label: "Лидерборд" },
   { href: "/about", label: "О платформе" },
 ];
 
